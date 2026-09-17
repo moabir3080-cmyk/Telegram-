@@ -1,4 +1,10 @@
-const axios = require('axios');
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => { res.send('Bot is running!');
+});
+app.listen(PORT, () => {
+  const axios = require('axios');
 
 // আপনার বট টোকেন এবং চ্যানেল চ্যাট আইডি
 const BOT_TOKEN = "8703585118:AAHRmikYlaG3izBI-Qny4wqGYbIRK0mZ0I";
