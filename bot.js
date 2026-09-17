@@ -1,22 +1,36 @@
 const express = require('express');
+const TelegramBot = require('node-telegram-bot-api');
+const fetch = require('node-fetch');
+
+// ১. Render-কে সচল রাখার জন্য ডামি ওয়েব সার্ভার (Status 1 এরর রোধে)
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('Bot is running!');
-});
-app.listen(PORT, () => {
-  const axios = require('axios');
 
-// আপনার বট টোকেন এবং চ্যানেল চ্যাট আইডি
-const BOT_TOKEN = "8703585118:AAHRmikYlaG3izBI-Qny4wqGYbIRK0mZ0I";
-const CHAT_ID = "-1003846977032";
+app.get('/', (req, res) => {
+  res.send('⚡ Telegram Predictor Bot is Active and Running!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Web server listening on port ${PORT}`);
+});
+
+// ২. টেলিগ্রাম বট কনফিগারেশন
+// Render-এর Environment Variables-এ BOT_TOKEN এবং CHAT_ID সেট করতে পারেন
+const token = process.env.BOT_TOKEN || 'আপনার_বট_টোকেন_এখানে_দিন';
+const chatId = process.env.CHAT_ID || 'আপনার_চ্যানেল_বা_গ্রুপ_আইডি'; 
+
+const bot = new TelegramBot(token, { polling: true });
+
+// ৩. উইংগো ডেটা API
 const API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json?pageNo=1&pageSize=30";
 
-let lastProcessedPeriod = ""; // আগের পিরিয়ড মনে রাখার জন্য
+let lastTrackedPeriod = "";
+let lastTrackedSignal = "";
+let lossStep = 0;
 
-// আপনার কোডের প্রেডিকশন লজিক (Advanced Pattern Engine)
+// ৪. আপনার HTML ফাইল থেকে নেওয়া প্রেডিকশন অ্যালগরিদম
 function advancedPatternEngine(list) {
   if (!list || list.length < 5) return { signal: "BIG", trendName: "NORMAL TREND" };
-  
   const results = list.map(item => parseInt(item.number || 0) >= 5 ? "BIG" : "SMALL");
   const numbers = list.map(item => parseInt(item.number || 0));
 
@@ -38,55 +52,58 @@ function advancedPatternEngine(list) {
   return { signal: sig, trendName: "📊 MOMENTUM WAVE" };
 }
 
-// টেলিগ্রামে মেসেজ পাঠানোর ফাংশন
-async function sendTelegramMessage(period, signal, trend) {
-  const emoji = signal === "BIG" ? "🟢 BIG" : "🔴 SMALL";
-  
-  const message = `⚡ <b>RXN VIP AI SIGNAL V3</b> ⚡\n\n` +
-                  `🎯 <b>Period:</b> <code>${period}</code>\n` +
-                  `📊 <b>Trend:</b> ${trend}\n` +
-                  `🔮 <b>Prediction:</b> <b>${emoji}</b>\n\n` +
-                  `👑 <i>Owner: RXN JOSHIM VIP</i>`;
-
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-  
+// ৫. টেলিগ্রামে প্রেডিকশন ও রেজাল্ট পাঠানো
+async function runBotCycle() {
   try {
-    await axios.post(url, {
-      chat_id: CHAT_ID,
-      text: message,
-      parse_mode: 'HTML'
-    });
-    console.log(`[+] নতুন সিগন্যাল পোস্ট হয়েছে: Period ${period} -> ${signal}`);
-  } catch (err) {
-    console.error("[-] মেসেজ পাঠাতে সমস্যা:", err.message);
-  }
-}
+    const res = await fetch(API_URL);
+    const data = await res.json();
+    const list = data.data?.list || [];
 
-// প্রতি ৫ সেকেন্ড পর পর ফলাফল চেক করার লুপ
-async function checkAndPredict() {
-  try {
-    const res = await axios.get(API_URL);
-    const list = res.data?.data?.list || [];
+    if (!list.length) return;
 
-    if (list.length > 0) {
-      const currentIssue = list[0].issueNumber || list[0].periodNumber || list[0].issue;
-      
-      // পরবর্তী রাউন্ডের পিরিয়ড বের করা
-      const nextPeriod = (BigInt(currentIssue) + 1n).toString();
+    const latest = list[0];
+    const currentPeriod = latest.issueNumber || latest.periodNumber || latest.issue;
+    const actualNum = parseInt(latest.number || 0);
+    const actualResult = actualNum >= 5 ? "BIG" : "SMALL";
 
-      // যদি এই পিরিয়ডের সিগন্যাল আগে পোস্ট না হয়ে থাকে
-      if (nextPeriod !== lastProcessedPeriod) {
-        lastProcessedPeriod = nextPeriod;
-
-        const analysis = advancedPatternEngine(list);
-        await sendTelegramMessage(nextPeriod, analysis.signal, analysis.trendName);
+    // রেজাল্ট যাচাইকরণ
+    if (lastTrackedPeriod && currentPeriod === lastTrackedPeriod) {
+      if (actualResult === lastTrackedSignal) {
+        bot.sendMessage(chatId, `✅ **WIN / RESULT MATCHED**\n\n🎯 Period: \`${currentPeriod.slice(-4)}\`\n🎲 Result: **${actualResult}** (${actualNum})\nSTATUS: SUCCESS 🔥`, { parse_mode: 'Markdown' });
+        lossStep = 0;
+      } else {
+        lossStep++;
+        bot.sendMessage(chatId, `❌ **SORRY STEP ${lossStep}**\n\n🎯 Period: \`${currentPeriod.slice(-4)}\`\n🎲 Result: **${actualResult}** (${actualNum})\nNext Round Prepare!`, { parse_mode: 'Markdown' });
       }
+      lastTrackedPeriod = "";
+      lastTrackedSignal = "";
     }
-  } catch (e) {
-    console.log("ডাটা ফেচ করতে সমস্যা হচ্ছে, পুনরায় চেষ্টা করা হবে...");
+
+    // পরবর্তী রাউন্ডের জন্য প্রেডিকশন পাঠানো
+    const nextPeriod = (BigInt(currentPeriod) + 1n).toString();
+    if (lastTrackedPeriod !== nextPeriod) {
+      const analysis = advancedPatternEngine(list);
+      lastTrackedPeriod = nextPeriod;
+      lastTrackedSignal = analysis.signal;
+
+      const msg = `⚡ **RXN VIP PREDICTION ENGINE**\n\n` +
+                  `🎮 Game: WinGo 30S\n` +
+                  `📊 Period: \`${nextPeriod.slice(-4)}\`\n` +
+                  `📈 Trend: ${analysis.trendName}\n` +
+                  `🎯 Signal: **${analysis.signal}**\n\n` +
+                  `_Trade with proper fund management!_`;
+
+      bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+    }
+  } catch (error) {
+    console.error("Error fetching WinGo data:", error.message);
   }
 }
 
-// প্রতি ৫ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে চেক করবে
-setInterval(checkAndPredict, 5000);
-console.log("🚀 বট চালু হয়েছে! এটি স্বয়ংক্রিয়ভাবে নতুন রাউন্ড এলে পোস্ট করবে...");
+// প্রতি ১০ সেকেন্ড পরপর API চেক করবে
+setInterval(runBotCycle, 10000);
+
+// /start কমান্ড রেসপন্স
+bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(msg.chat.id, "স্বাগতম! RXN VIP প্রেডিকশন বট সফলভাবে সক্রিয় হয়েছে।");
+});
