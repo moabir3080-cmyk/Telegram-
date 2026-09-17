@@ -1,11 +1,16 @@
 {
   "name": "telegram-predictor-bot",
   "version": "1.0.0",
+  "description": "Telegram Auto Predictor Bot with Express Keep-Alive",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "axios": "^1.7.0"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0",
+    "node-telegram-bot-api": "^0.66.0"
   }
 }
+
